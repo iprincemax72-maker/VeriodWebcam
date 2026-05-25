@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+
+# Swift / SPM (macos/)
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/
+DerivedData/
+
+# Android / Gradle
+.gradle/
+.kotlin/
+build/
+local.properties
+captures/
+*.iml
+.idea/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Native build outputs
+*.o
+*.a
+*.dylib
+*.so
+
+# Editor
+.vscode/
+*.swp
