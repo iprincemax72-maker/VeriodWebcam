@@ -32,3 +32,25 @@ captures/
 # Editor
 .vscode/
 *.swp
+
+node_modules/
+.venv/
+venv/
+__pycache__/
+out/
+dist/
+build/
+.next/
+.turbo/
+.cache/
+*.mp4
+*.mov
+*.webm
+*.m4v
+*.safetensors
+*.ckpt
+*.pth
+*.zip
+*.dmg
+.DS_Store
+
