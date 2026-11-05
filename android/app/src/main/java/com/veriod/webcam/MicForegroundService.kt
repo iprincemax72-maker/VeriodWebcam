@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -26,6 +27,7 @@ import androidx.core.app.NotificationCompat
 class MicForegroundService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -50,12 +52,27 @@ class MicForegroundService : Service() {
                 "VeriodWebcam:mic",
             ).apply { setReferenceCounted(false); acquire(6L * 60L * 60L * 1000L) }
         }
+        if (wifiLock == null) {
+            val wifi = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                @Suppress("DEPRECATION")
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            wifiLock = wifi.createWifiLock(mode, "VeriodWebcam:wifi").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }
         return START_STICKY
     }
 
     override fun onDestroy() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+        wifiLock?.let { if (it.isHeld) it.release() }
+        wifiLock = null
         super.onDestroy()
     }
 

@@ -167,8 +167,11 @@ private fun MainScreen(
     onStartService: () -> Unit,
     onStopService: () -> Unit,
 ) {
-    var host by remember { mutableStateOf("192.168.29.215") }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("veriod", android.content.Context.MODE_PRIVATE) }
+    var host by remember { mutableStateOf(prefs.getString("host", "") ?: "") }
     var port by remember { mutableStateOf("50001") }
+    var foundMac by remember { mutableStateOf<String?>(null) }
     var videoPort by remember { mutableStateOf("50002") }
     var camOn by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(streamer.muted) }
@@ -179,6 +182,17 @@ private fun MainScreen(
     val videoState by videoStreamer.state.collectAsState()
     val camActive = videoState is VideoStreamer.State.Running
 
+    LaunchedEffect(Unit) {
+        MacFinder.find(context).collect { mac ->
+            foundMac = mac.name
+            if (streamer.state.value !is AudioStreamer.State.Running) {
+                host = mac.host
+                port = mac.port.toString()
+                prefs.edit().putString("host", mac.host).apply()
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -188,10 +202,16 @@ private fun MainScreen(
     ) {
         Text("VeriodWebcam", style = MaterialTheme.typography.headlineMedium)
 
+        Text(
+            foundMac?.let { "Found $it on Wi-Fi" } ?: "Looking for your Mac… (open Veriod on the Mac)",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (foundMac != null) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         OutlinedTextField(
             value = host,
-            onValueChange = { host = it.trim() },
-            label = { Text("Mac IP") },
+            onValueChange = { host = it.trim(); prefs.edit().putString("host", host).apply() },
+            label = { Text("Mac IP (filled in automatically)") },
             singleLine = true,
             enabled = !micOn,
             modifier = Modifier.fillMaxWidth(),

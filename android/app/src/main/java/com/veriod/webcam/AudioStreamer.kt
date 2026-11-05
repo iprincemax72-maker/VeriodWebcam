@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -133,14 +134,59 @@ class AudioStreamer(private val appContext: android.content.Context? = null) {
                 recorder.startRecording()
                 _state.value = State.Running(host, port, 0L)
 
+                var micFails = 0
                 while (isActive) {
                     var read = 0
+                    var micDied = false
                     while (read < BYTES_PER_FRAME) {
-                        val n = recorder.read(audioBuf, read, BYTES_PER_FRAME - read)
-                        if (n <= 0) break
+                        val n = recorder!!.read(audioBuf, read, BYTES_PER_FRAME - read)
+                        if (n < 0) {
+                            micDied = true
+                            break
+                        }
+                        if (n == 0) break
                         read += n
                     }
-                    if (read <= 0) continue
+                    if (micDied) {
+                        // read() error used to spin here and send nothing, so the
+                        // Mac sat on "Phone stopped sending" with the switch still on.
+                        micFails += 1
+                        if (micFails > 5) throw IllegalStateException("Mic read failed")
+                        runCatching { recorder?.stop() }
+                        recorder?.release()
+                        fx.forEach { runCatching { it.release() } }
+                        fx.clear()
+                        val again = AudioRecord(
+                            source,
+                            SAMPLE_RATE,
+                            AudioFormat.CHANNEL_IN_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT,
+                            minBuf,
+                        )
+                        if (again.state != AudioRecord.STATE_INITIALIZED) {
+                            again.release()
+                            throw IllegalStateException("AudioRecord failed to initialize")
+                        }
+                        recorder = again
+                        val sid = again.audioSessionId
+                        if (activeMode == NoiseMode.NOISE_HIGH && NoiseSuppressor.isAvailable()) {
+                            runCatching { NoiseSuppressor.create(sid) }
+                                .getOrNull()?.also { it.enabled = true; fx.add(it) }
+                        }
+                        if ((activeMode == NoiseMode.NOISE_MODERATE || activeMode == NoiseMode.NOISE_HIGH)
+                            && AutomaticGainControl.isAvailable()
+                        ) {
+                            runCatching { AutomaticGainControl.create(sid) }
+                                .getOrNull()?.also { it.enabled = true; fx.add(it) }
+                        }
+                        again.startRecording()
+                        continue
+                    }
+                    micFails = 0
+                    if (read <= 0) {
+                        Thread.sleep(10)
+                        continue
+                    }
 
                     packet[1] = ((seq shr 16) and 0xFF).toByte()
                     packet[2] = ((seq shr 8) and 0xFF).toByte()
@@ -164,7 +210,14 @@ class AudioStreamer(private val appContext: android.content.Context? = null) {
                     }
 
                     val dp = DatagramPacket(packet, HEADER_SIZE + read, address, port)
-                    socket.send(dp)
+                    try {
+                        socket!!.send(dp)
+                    } catch (e: IOException) {
+                        // one wifi blip used to kill the whole stream
+                        runCatching { socket?.close() }
+                        socket = DatagramSocket()
+                        continue
+                    }
 
                     packetsSent += 1
                     if (packetsSent % 50 == 0L) {
